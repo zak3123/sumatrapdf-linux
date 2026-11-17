@@ -1,0 +1,383 @@
+diff --git a/cmd/helper/ng-targets.ts b/cmd/helper/ng-targets.ts
+index d1eed0d79..070c245eb 100644
+--- a/cmd/helper/ng-targets.ts
++++ b/cmd/helper/ng-targets.ts
+@@ -1443,7 +1443,7 @@ export const targets: Target[] = [
+     name: "test_mupdf",
+     kind: "console",
+     sources: ["src/ng/tools/test_mupdf.cpp"],
+-    includes: ["ext/mupdf/include"],
++    includes: ["src/ng", "ext/mupdf/include"],
+     deps: ["mupdf"],
+     winLibs: [
+       "advapi32.lib",
+diff --git a/src/ng/tools/test_mupdf.cpp b/src/ng/tools/test_mupdf.cpp
+index e73b3448a..69afbea0b 100644
+--- a/src/ng/tools/test_mupdf.cpp
++++ b/src/ng/tools/test_mupdf.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "mupdf/fitz.h"
+ #include "mupdf/pdf.h"
++#include "mupdf/ocr-text.h"
+ 
+ // Not empty: the linker would fold empty ones into mupdf's default lock
+ // functions, and fz_clone_context() refuses a context that has those.
+@@ -104,6 +105,40 @@ static int JsFaultTest(const char* path, JsFault fault) {
+ }
+ 
+ int main(int argc, char** argv) {
++    if (argc == 4 && strcmp(argv[1], "-ocr") == 0) {
++        fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
++        if (!ctx) {
++            fprintf(stderr, "fz_new_context() failed\n");
++            return 1;
++        }
++        fz_image* image = nullptr;
++        fz_pixmap* pixmap = nullptr;
++        fz_buffer* text = nullptr;
++        int res = 0;
++        fz_var(image);
++        fz_var(pixmap);
++        fz_var(text);
++        fz_try(ctx) {
++            image = fz_new_image_from_file(ctx, argv[2]);
++            pixmap = fz_get_pixmap_from_image(ctx, image, nullptr, nullptr, nullptr, nullptr);
++            text = sumatra_ocr_pixmap_text(ctx, pixmap, "eng", argv[3]);
++            unsigned char* data = nullptr;
++            size_t size = fz_buffer_storage(ctx, text, &data);
++            fwrite(data, 1, size, stdout);
++            fputc('\n', stdout);
++        }
++        fz_always(ctx) {
++            fz_drop_buffer(ctx, text);
++            fz_drop_pixmap(ctx, pixmap);
++            fz_drop_image(ctx, image);
++        }
++        fz_catch(ctx) {
++            fprintf(stderr, "%s: %s\n", argv[2], fz_caught_message(ctx));
++            res = 1;
++        }
++        fz_drop_context(ctx);
++        return res;
++    }
+     if (argc == 3 && strcmp(argv[1], "-js-throw") == 0) {
+         return JsFaultTest(argv[2], JsFault::ConsoleThrows);
+     }
+@@ -111,7 +146,7 @@ int main(int argc, char** argv) {
+         return JsFaultTest(argv[2], JsFault::ValueCopyOom);
+     }
+     if (argc != 2) {
+-        fprintf(stderr, "usage: test_mupdf [-js-throw | -js-oom] <file>\n");
++        fprintf(stderr, "usage: test_mupdf [-js-throw | -js-oom] <file> | -ocr <image> <tessdata>\n");
+         return 2;
+     }
+     fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
+diff --git a/src/shared/Selection.cpp b/src/shared/Selection.cpp
+index 44dde29c1..9b3ef0dbe 100644
+--- a/src/shared/Selection.cpp
++++ b/src/shared/Selection.cpp
+@@ -10,6 +10,7 @@
+ // docs/port-progress.md.
+ 
+ #include "gui/GpuiBridge.h"
++#include "base/File.h"
+ #else
+ #include "base/Base.h"
+ #endif
+@@ -66,6 +67,8 @@
+ #if defined(SUMATRA_NG)
+ #include "gui/AppShell.h"
+ #include "gui/DocCanvas.h"
++#include "mupdf/fitz.h"
++#include "mupdf/ocr-text.h"
+ #include "SelectTextKeyboard.h"
+ #else
+ #include "SelectTextKeyboard.h"
+@@ -875,6 +878,101 @@ Pixmap* RenderSelectionsAsPixmap(DisplayModel* dm, const Vec<SelectionOnPage>& s
+ #if defined(SUMATRA_NG)
+ // ng: orig also puts the first selection rectangle on the clipboard as a
+ // bitmap (CF_BITMAP); gpui's clipboard is text only, so only the text goes.
++static TempStr OcrDataDirIfValidTemp(Str dir) {
++    if (len(dir) == 0 || !file::Exists(path::JoinTemp(dir, StrL("eng.traineddata")))) {
++        return {};
++    }
++    return str::DupTemp(dir);
++}
++
++static TempStr FindOcrDataDirTemp() {
++    const char* env = getenv("TESSDATA_PREFIX");
++    TempStr result;
++    if (env) {
++        result = OcrDataDirIfValidTemp(Str(env));
++        if (result) {
++            return result;
++        }
++        result = OcrDataDirIfValidTemp(path::JoinTemp(Str(env), StrL("tessdata")));
++        if (result) {
++            return result;
++        }
++    }
++
++    result = OcrDataDirIfValidTemp(path::JoinTemp(GetSelfExeDirTemp(), StrL("tessdata")));
++    if (result) {
++        return result;
++    }
++    const char* home = getenv("HOME");
++    if (home) {
++        result = OcrDataDirIfValidTemp(path::JoinTemp(Str(home), StrL(".local/share/sumatrapdf/tessdata")));
++        if (result) {
++            return result;
++        }
++    }
++
++    const char* systemDirs[] = {
++        "/usr/share/tesseract/tessdata",
++        "/usr/share/tesseract-ocr/5/tessdata",
++        "/usr/share/tesseract-ocr/4.00/tessdata",
++        "/usr/share/tessdata",
++        "/usr/local/share/tessdata",
++        "/app/share/tessdata",
++    };
++    for (const char* dir : systemDirs) {
++        result = OcrDataDirIfValidTemp(Str(dir));
++        if (result) {
++            return result;
++        }
++    }
++    return {};
++}
++
++static TempStr GetOcrTextTemp(WindowTab* tab, TempStr* errorOut) {
++    DisplayModel* dm = tab ? tab->AsFixed() : nullptr;
++    if (!dm || !tab->selectionOnPage || len(*tab->selectionOnPage) == 0) {
++        return {};
++    }
++    TempStr dataDir = FindOcrDataDirTemp();
++    if (len(dataDir) == 0) {
++        *errorOut = str::DupTemp(StrL("OCR data eng.traineddata was not found"));
++        return {};
++    }
++    Pixmap* pixmap = RenderSelectionsAsPixmap(dm, *tab->selectionOnPage);
++    if (!pixmap) {
++        *errorOut = str::DupTemp(StrL("Could not render the selected area for OCR"));
++        return {};
++    }
++
++    TempStr result;
++    fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
++    if (!ctx) {
++        FreePixmap(pixmap);
++        *errorOut = str::DupTemp(StrL("Could not initialize OCR"));
++        return {};
++    }
++    fz_buffer* text = nullptr;
++    fz_var(text);
++    fz_try(ctx) {
++        text = sumatra_ocr_bgra_text(ctx, pixmap->data, pixmap->width, pixmap->height, pixmap->stride,
++                                     (int)pixmap->xres, (int)pixmap->yres, "eng", CStrTemp(dataDir));
++        unsigned char* data = nullptr;
++        size_t size = fz_buffer_storage(ctx, text, &data);
++        Str recognized((const char*)data, (int)size);
++        str::TrimWsBoth(recognized);
++        result = str::DupTemp(recognized);
++    }
++    fz_always(ctx) {
++        fz_drop_buffer(ctx, text);
++    }
++    fz_catch(ctx) {
++        *errorOut = str::DupTemp(Str(fz_caught_message(ctx)));
++    }
++    fz_drop_context(ctx);
++    FreePixmap(pixmap);
++    return result;
++}
++
+ void CopySelectionToClipboard(MainWindow* win) {
+ #else
+ RenderedBitmap* RenderSelectionsAsRenderedBitmap(DisplayModel* dm, const Vec<SelectionOnPage>& selections) {
+@@ -970,9 +1068,18 @@ void CopySelectionToClipboard(MainWindow* win) {
+     selText = GetSelectedTextTemp(tab, StrL("\r\n"), isTextOnlySelectionOut);
+     logf("CopySelectionToClipboard: %d bytes, text-only selection: %d\n", len(selText), isTextOnlySelectionOut ? 1 : 0);
+     if (len(selText) == 0) {
+-        return;
++        TempStr error;
++        selText = GetOcrTextTemp(tab, &error);
++        Str errorPrefix = len(error) > 0 ? StrL(", error: ") : Str();
++        logf("CopySelectionToClipboard OCR: %d bytes%s%s\n", len(selText), errorPrefix, error);
++        if (len(selText) == 0) {
++            Str message = len(error) > 0 ? error : StrL("No text recognized in the selected image");
++            ShowTemporaryNotification(win, message, kNotifDefaultTimeOut);
++            return;
++        }
+     }
+     CanvasSetClipboardText(win, selText);
++    ShowTemporaryNotification(win, Tr("Copied to clipboard"), kNotifDefaultTimeOut);
+ #else
+ 
+     CopySelectionImageToOpenClipboard(tab, true);
+@@ -1194,6 +1301,13 @@ void OnSelectionStop(MainWindow* win, int x, int y, bool aborted) {
+         // the selection on mouse-up when the pointer actually moved (issue #5712).
+         bool dragged = IsDragDistance(win->selectionRect.x, x, win->selectionRect.y, y);
+         UpdateTextSelection(win, dragged);
++#if defined(SUMATRA_NG)
++        // A scan or image has no glyphs to select. Keep the dragged area as a
++        // rectangular selection so Copy can run OCR without requiring Ctrl+drag.
++        if (dragged && !win->CurrentTab()->selectionOnPage) {
++            win->mouseAction = MouseAction::Selecting;
++        }
++#endif
+     }
+ 
+     if (editingRect) {
+diff --git a/src/ng/mupdf/ocr-text.c b/src/ng/mupdf/ocr-text.c
+new file mode 100644
+index 000000000..0dff81522
+--- /dev/null
++++ b/src/ng/mupdf/ocr-text.c
+@@ -0,0 +1,118 @@
++/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
++   License: GPLv3 */
++
++#include <string.h>
++
++#include "mupdf/fitz.h"
++#include "tessocr.h"
++
++#include "ocr-text.h"
++
++typedef struct {
++    fz_buffer* text;
++    int line_bbox[4];
++    int word_bbox[4];
++    int has_line;
++    int has_word;
++} ocr_text_state;
++
++static void append_ocr_character(fz_context* ctx, void* arg, int unicode, const char* font_name, const int* line_bbox,
++                                 const int* word_bbox, const int* char_bbox, int pointsize) {
++    ocr_text_state* state = (ocr_text_state*)arg;
++    int new_line = state->has_line && memcmp(state->line_bbox, line_bbox, sizeof(state->line_bbox)) != 0;
++    int new_word = state->has_word && memcmp(state->word_bbox, word_bbox, sizeof(state->word_bbox)) != 0;
++
++    if (new_line) {
++        fz_append_byte(ctx, state->text, '\n');
++    } else if (new_word) {
++        fz_append_byte(ctx, state->text, ' ');
++    }
++    memcpy(state->line_bbox, line_bbox, sizeof(state->line_bbox));
++    memcpy(state->word_bbox, word_bbox, sizeof(state->word_bbox));
++    state->has_line = 1;
++    state->has_word = 1;
++    fz_append_rune(ctx, state->text, unicode);
++}
++
++static fz_buffer* recognise_gray_pixmap(fz_context* ctx, fz_pixmap* gray, const char* language, const char* datadir) {
++    void* api = NULL;
++    fz_buffer* text = NULL;
++    ocr_text_state state = {0};
++    fz_var(api);
++    fz_var(text);
++
++    fz_try(ctx) {
++        text = fz_new_buffer(ctx, 256);
++        state.text = text;
++        api = ocr_init(ctx, language, datadir, NULL);
++        ocr_recognise(ctx, api, gray, append_ocr_character, NULL, &state);
++    }
++    fz_always(ctx) {
++        ocr_fin(ctx, api);
++    }
++    fz_catch(ctx) {
++        fz_drop_buffer(ctx, text);
++        fz_rethrow(ctx);
++    }
++    return text;
++}
++
++fz_buffer* sumatra_ocr_pixmap_text(fz_context* ctx, fz_pixmap* pixmap, const char* language, const char* datadir) {
++    fz_pixmap* gray = NULL;
++    fz_buffer* text = NULL;
++    fz_var(gray);
++    fz_var(text);
++
++    fz_try(ctx) {
++        gray = fz_convert_pixmap(ctx, pixmap, fz_device_gray(ctx), NULL, NULL, fz_default_color_params, 0);
++        if (gray->xres <= 0 || gray->yres <= 0) {
++            fz_set_pixmap_resolution(ctx, gray, 300, 300);
++        }
++        text = recognise_gray_pixmap(ctx, gray, language, datadir);
++    }
++    fz_always(ctx) {
++        fz_drop_pixmap(ctx, gray);
++    }
++    fz_catch(ctx) {
++        fz_rethrow(ctx);
++    }
++    return text;
++}
++
++fz_buffer* sumatra_ocr_bgra_text(fz_context* ctx, const unsigned char* samples, int width, int height, int stride,
++                                 int xres, int yres, const char* language, const char* datadir) {
++    fz_pixmap* gray = NULL;
++    fz_buffer* text = NULL;
++    int x;
++    int y;
++    fz_var(gray);
++    fz_var(text);
++
++    if (!samples || width <= 0 || height <= 0 || stride < width * 4) {
++        fz_throw(ctx, FZ_ERROR_ARGUMENT, "invalid BGRA pixmap for OCR");
++    }
++    fz_try(ctx) {
++        gray = fz_new_pixmap(ctx, fz_device_gray(ctx), width, height, NULL, 0);
++        for (y = 0; y < height; y++) {
++            const unsigned char* src = samples + (size_t)y * (size_t)stride;
++            unsigned char* dst = gray->samples + (size_t)y * (size_t)gray->stride;
++            for (x = 0; x < width; x++) {
++                unsigned int b = src[x * 4 + 0];
++                unsigned int g = src[x * 4 + 1];
++                unsigned int r = src[x * 4 + 2];
++                unsigned int a = src[x * 4 + 3];
++                unsigned int value = (77 * r + 150 * g + 29 * b) >> 8;
++                dst[x] = (unsigned char)((value * a + 255 * (255 - a) + 127) / 255);
++            }
++        }
++        fz_set_pixmap_resolution(ctx, gray, xres > 0 ? xres : 300, yres > 0 ? yres : 300);
++        text = recognise_gray_pixmap(ctx, gray, language, datadir);
++    }
++    fz_always(ctx) {
++        fz_drop_pixmap(ctx, gray);
++    }
++    fz_catch(ctx) {
++        fz_rethrow(ctx);
++    }
++    return text;
++}
+diff --git a/src/ng/mupdf/ocr-text.h b/src/ng/mupdf/ocr-text.h
+new file mode 100644
+index 000000000..f7d6c46c7
+--- /dev/null
++++ b/src/ng/mupdf/ocr-text.h
+@@ -0,0 +1,21 @@
++/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
++   License: GPLv3 */
++
++#ifndef SUMATRA_OCR_TEXT_H
++#define SUMATRA_OCR_TEXT_H
++
++#include "mupdf/fitz.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++fz_buffer* sumatra_ocr_pixmap_text(fz_context* ctx, fz_pixmap* pixmap, const char* language, const char* datadir);
++fz_buffer* sumatra_ocr_bgra_text(fz_context* ctx, const unsigned char* samples, int width, int height, int stride,
++                                 int xres, int yres, const char* language, const char* datadir);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
