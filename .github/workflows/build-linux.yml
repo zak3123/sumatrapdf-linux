@@ -19,7 +19,7 @@ jobs:
       - name: Install system dependencies
         run: |
           dnf -y install \
-            gcc-c++ clang-tools-extra pkgconf-pkg-config \
+            gcc-c++ libstdc++-static clang-tools-extra pkgconf-pkg-config \
             pango-devel cairo-devel libX11-devel gdk-pixbuf2-devel \
             glib2-devel fontconfig-devel harfbuzz-devel \
             openssl-devel libcurl-devel libxml2-devel \
