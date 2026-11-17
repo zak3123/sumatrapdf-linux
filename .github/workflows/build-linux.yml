@@ -1,0 +1,64 @@
+name: Build SumatraPDF Linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "sumatrapdf-linux-ocr.patch"
+      - ".github/workflows/build-linux.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fedora-x86_64:
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf -y install \
+            gcc-c++ clang-tools-extra pkgconf-pkg-config \
+            pango-devel cairo-devel libX11-devel gdk-pixbuf2-devel \
+            glib2-devel fontconfig-devel harfbuzz-devel \
+            openssl-devel libcurl-devel libxml2-devel \
+            nasm perl python3 git curl unzip tar glibc-gconv-extra \
+            tesseract-langpack-eng
+
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Fetch official SumatraPDF source
+        run: |
+          git init upstream
+          git -C upstream remote add origin https://github.com/sumatrapdfreader/sumatrapdf.git
+          git -C upstream fetch --depth 1 origin b1a8e22577c9e35064315d279fc33ba6b67c5bef
+          git -C upstream checkout --detach FETCH_HEAD
+          git -C upstream apply ../sumatrapdf-linux-ocr.patch
+
+      - name: Build release
+        working-directory: upstream
+        env:
+          NG_LINUX_OUT: github
+        run: bun cmd/ng-build.ts -rel -static SumatraPDF
+
+      - name: Package binary and OCR data
+        run: |
+          install -d dist/tessdata
+          install -m 0755 upstream/out/github/rel/SumatraPDF dist/SumatraPDF-linux-x86_64
+          strip dist/SumatraPDF-linux-x86_64
+          install -m 0644 /usr/share/tesseract/tessdata/eng.traineddata dist/tessdata/eng.traineddata
+          tar -C dist -czf SumatraPDF-linux-x86_64.tar.gz SumatraPDF-linux-x86_64 tessdata
+          sha256sum dist/SumatraPDF-linux-x86_64 SumatraPDF-linux-x86_64.tar.gz > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SumatraPDF-linux-x86_64
+          path: |
+            SumatraPDF-linux-x86_64.tar.gz
+            SHA256SUMS
+          if-no-files-found: error
