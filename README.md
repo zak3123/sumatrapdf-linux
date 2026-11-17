@@ -2,6 +2,10 @@
 
 Native Linux build of [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapdf), based on upstream commit `b1a8e22577c9e35064315d279fc33ba6b67c5bef`.
 
+## Download
+
+The Fedora x86-64 build is produced by GitHub Actions. Open the [latest successful build](https://github.com/zak3123/sumatrapdf-linux/actions/runs/44190500228) and download the **SumatraPDF-linux-x86_64** artifact. It contains the application archive and SHA-256 checksums.
+
 ## Linux changes
 
 - Native Linux desktop binary built from the upstream `src/ng` port.
