@@ -3,7 +3,7 @@ name: Build SumatraPDF Linux
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, build-trigger]
     paths:
       - "sumatrapdf-linux-ocr.patch"
       - ".github/workflows/build-linux.yml"
