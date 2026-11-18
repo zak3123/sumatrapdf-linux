@@ -888,6 +888,7 @@ static TempStr GetOcrTextTemp(WindowTab* tab, TempStr* errorOut) {
         *errorOut = str::DupTemp(StrL("OCR data eng.traineddata was not found"));
         return {};
     }
+    TempStr languages = FindOcrLanguagesTemp(dataDir);
     Pixmap* pixmap = RenderSelectionsAsPixmap(dm, *tab->selectionOnPage);
     if (!pixmap) {
         *errorOut = str::DupTemp(StrL("Could not render the selected area for OCR"));
@@ -905,7 +906,7 @@ static TempStr GetOcrTextTemp(WindowTab* tab, TempStr* errorOut) {
     fz_var(text);
     fz_try(ctx) {
         text = sumatra_ocr_bgra_text(ctx, pixmap->data, pixmap->width, pixmap->height, pixmap->stride,
-                                     (int)pixmap->xres, (int)pixmap->yres, "eng", CStrTemp(dataDir));
+                                     (int)pixmap->xres, (int)pixmap->yres, CStrTemp(languages), CStrTemp(dataDir));
         unsigned char* data = nullptr;
         size_t size = fz_buffer_storage(ctx, text, &data);
         Str recognized((const char*)data, (int)size);
