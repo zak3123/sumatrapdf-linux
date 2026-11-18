@@ -116,3 +116,36 @@ fz_buffer* sumatra_ocr_bgra_text(fz_context* ctx, const unsigned char* samples, 
     }
     return text;
 }
+
+fz_stext_page* sumatra_ocr_page_text(fz_context* ctx, fz_page* page, const fz_stext_options* options,
+                                     const char* language, const char* datadir) {
+    fz_rect mediabox;
+    fz_stext_page* text = NULL;
+    fz_device* target = NULL;
+    fz_device* ocr = NULL;
+    fz_var(text);
+    fz_var(target);
+    fz_var(ocr);
+
+    if (!page) {
+        fz_throw(ctx, FZ_ERROR_ARGUMENT, "cannot OCR a missing page");
+    }
+    fz_try(ctx) {
+        mediabox = fz_bound_page(ctx, page);
+        text = fz_new_stext_page(ctx, mediabox);
+        target = fz_new_stext_device(ctx, text, options);
+        ocr = fz_new_ocr_device(ctx, target, fz_identity, mediabox, 1, language, datadir, NULL, NULL);
+        fz_run_page(ctx, page, ocr, fz_identity, NULL);
+        fz_close_device(ctx, ocr);
+        fz_close_device(ctx, target);
+    }
+    fz_always(ctx) {
+        fz_drop_device(ctx, ocr);
+        fz_drop_device(ctx, target);
+    }
+    fz_catch(ctx) {
+        fz_drop_stext_page(ctx, text);
+        fz_rethrow(ctx);
+    }
+    return text;
+}
