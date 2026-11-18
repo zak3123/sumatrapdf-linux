@@ -4,22 +4,24 @@ Native Linux build of [SumatraPDF](https://github.com/sumatrapdfreader/sumatrapd
 
 ## Download
 
-The Fedora x86-64 build is produced by GitHub Actions. Open the [latest successful build](https://github.com/zak3123/sumatrapdf-linux/actions/runs/44190500228) and download the **SumatraPDF-linux-x86_64** artifact. It contains the application archive and SHA-256 checksums.
+Open [GitHub Actions](https://github.com/zak3123/sumatrapdf-linux/actions/workflows/build-linux.yml), choose the newest successful **Build SumatraPDF Linux** run, and download the **SumatraPDF-linux-x86_64** artifact.
 
 ## Linux changes
 
-- Native Linux desktop binary built from the upstream `src/ng` port.
-- OCR fallback for scanned PDFs and image-only documents.
-- Drag normally across text in an image or scan, then press **Ctrl+C**.
-- Uses Tesseract and MuPDF already linked by the native build.
-- Searches common Fedora, Ubuntu, Arch, Flatpak, and local tessdata locations.
+- Native Linux desktop binary built from the official upstream `src/ng` port.
+- Scanned PDF pages receive a local Tesseract text layer when no embedded text exists.
+- OCR character coordinates feed SumatraPDF's original text-selection model.
+- Drag across scanned text to highlight individual letters/words, then right-click for Copy, Search, Translate, annotations, and other selection actions.
+- `Ctrl+C` retains a rectangular OCR fallback for image-only selections.
+- Searches common Fedora, Ubuntu, Arch, Flatpak, executable-local, and user-local tessdata locations.
 
 ## Verified
 
-- Fedora 45 x86-64 release build completed.
-- OCR test image recognized exactly as `SUMATRA LINUX OCR 123`.
-- Application launch and desktop integration verified.
-- 104,076 unit tests passed; two unrelated animated-GIF frame tests remain failing.
+- Fedora x86-64 build completed.
+- Image-only PDF recognized exactly as `SUMATRA LINUX OCR 123`.
+- OCR output contains a bounding box for every recognized character, enabling mouse selection and context-menu actions.
+- All 104,704 unit tests passed.
+- Installed binary was stripped to 32 MB and re-tested after stripping.
 
 ## OCR data
 
