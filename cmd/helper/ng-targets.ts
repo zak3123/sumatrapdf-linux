@@ -585,6 +585,7 @@ const enginesSources = [
   "src/ng/EngineEbook.cpp",
   "src/ng/EngineImages.cpp",
   "src/ng/EngineMupdf.cpp",
+  "src/ng/OcrText.cpp",
   "src/ng/EnginePs.cpp",
   "src/ng/EutlTrust.cpp",
   "src/FilterUtil.cpp",
