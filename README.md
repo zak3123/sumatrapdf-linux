@@ -9,7 +9,7 @@ Open [GitHub Actions](https://github.com/zak3123/sumatrapdf-linux/actions/workfl
 ## Linux changes
 
 - Native Linux desktop binary built from the official upstream `src/ng` port.
-- Scanned PDF pages receive a local Tesseract text layer when no embedded text exists.
+- Scanned PDF pages receive a local Tesseract text layer when no embedded text exists.\n- English and Japanese OCR models are bundled; the app automatically uses `jpn+eng` when both are available.
 - OCR character coordinates feed SumatraPDF's original text-selection model.
 - Drag across scanned text to highlight individual letters/words, then right-click for Copy, Search, Translate, annotations, and other selection actions.
 - `Ctrl+C` retains a rectangular OCR fallback for image-only selections.
@@ -28,7 +28,7 @@ Open [GitHub Actions](https://github.com/zak3123/sumatrapdf-linux/actions/workfl
 Install English Tesseract data using your distribution package, or place `eng.traineddata` in one of:
 
 - `tessdata/` beside the executable
-- `~/.local/share/sumatrapdf/tessdata/`
+- `~/.local/share/sumatrapdf/tessdata/`\n\nFor Japanese text, place `jpn.traineddata` in the same directory as `eng.traineddata`.
 - your distribution's system tessdata directory
 
 ## License
