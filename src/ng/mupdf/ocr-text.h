@@ -13,6 +13,8 @@ extern "C" {
 fz_buffer* sumatra_ocr_pixmap_text(fz_context* ctx, fz_pixmap* pixmap, const char* language, const char* datadir);
 fz_buffer* sumatra_ocr_bgra_text(fz_context* ctx, const unsigned char* samples, int width, int height, int stride,
                                  int xres, int yres, const char* language, const char* datadir);
+fz_stext_page* sumatra_ocr_page_text(fz_context* ctx, fz_page* page, const fz_stext_options* options,
+                                     const char* language, const char* datadir);
 
 #ifdef __cplusplus
 }
