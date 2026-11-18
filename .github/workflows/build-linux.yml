@@ -24,7 +24,7 @@ jobs:
             glib2-devel fontconfig-devel harfbuzz-devel \
             openssl-devel libcurl-devel libxml2-devel \
             nasm perl python3 git curl unzip tar glibc-gconv-extra \
-            tesseract-langpack-eng
+            tesseract-langpack-eng tesseract-langpack-jpn
 
       - uses: actions/checkout@v4
 
@@ -52,6 +52,7 @@ jobs:
           install -m 0755 upstream/out/github/rel/SumatraPDF dist/SumatraPDF-linux-x86_64
           strip dist/SumatraPDF-linux-x86_64
           install -m 0644 /usr/share/tesseract/tessdata/eng.traineddata dist/tessdata/eng.traineddata
+          install -m 0644 /usr/share/tesseract/tessdata/jpn.traineddata dist/tessdata/jpn.traineddata
           tar -C dist -czf SumatraPDF-linux-x86_64.tar.gz SumatraPDF-linux-x86_64 tessdata
           sha256sum dist/SumatraPDF-linux-x86_64 SumatraPDF-linux-x86_64.tar.gz > SHA256SUMS
 

@@ -82,7 +82,7 @@ index e73b3448a..69afbea0b 100644
      }
      fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
 diff --git a/src/shared/EngineMupdf.cpp b/src/shared/EngineMupdf.cpp
-index bd6fa2cfb..fae3efebd 100644
+index bd6fa2cfb..0fdbfd6b2 100644
 --- a/src/shared/EngineMupdf.cpp
 +++ b/src/shared/EngineMupdf.cpp
 @@ -49,6 +49,10 @@ extern "C" {
@@ -96,7 +96,7 @@ index bd6fa2cfb..fae3efebd 100644
  
  // A5
  static float layoutA5DxPt = 420.F;
-@@ -8409,6 +8413,28 @@ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
+@@ -8409,6 +8413,29 @@ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
      PageText res;
      res.text = FzTextPageToUtf8(stext, &res.coords, &res.quads);
      fz_drop_stext_page(ctx, stext);
@@ -107,10 +107,11 @@ index bd6fa2cfb..fae3efebd 100644
 +    if (str::IsEmptyOrWhiteSpace(res.text)) {
 +        TempStr dataDir = FindOcrDataDirTemp();
 +        if (len(dataDir) > 0) {
++            TempStr languages = FindOcrLanguagesTemp(dataDir);
 +            FreePageText(&res);
 +            stext = nullptr;
 +            fz_try(ctx) {
-+                stext = sumatra_ocr_page_text(ctx, pageInfo->page, &opts, "eng", CStrTemp(dataDir));
++                stext = sumatra_ocr_page_text(ctx, pageInfo->page, &opts, CStrTemp(languages), CStrTemp(dataDir));
 +            }
 +            fz_catch(ctx) {
 +                fz_report_error(ctx);
@@ -126,7 +127,7 @@ index bd6fa2cfb..fae3efebd 100644
      return res;
  }
 diff --git a/src/shared/Selection.cpp b/src/shared/Selection.cpp
-index 44dde29c1..be8d01e99 100644
+index 44dde29c1..c70249992 100644
 --- a/src/shared/Selection.cpp
 +++ b/src/shared/Selection.cpp
 @@ -66,6 +66,9 @@
@@ -139,7 +140,7 @@ index 44dde29c1..be8d01e99 100644
  #include "SelectTextKeyboard.h"
  #else
  #include "SelectTextKeyboard.h"
-@@ -875,6 +878,51 @@ Pixmap* RenderSelectionsAsPixmap(DisplayModel* dm, const Vec<SelectionOnPage>& s
+@@ -875,6 +878,52 @@ Pixmap* RenderSelectionsAsPixmap(DisplayModel* dm, const Vec<SelectionOnPage>& s
  #if defined(SUMATRA_NG)
  // ng: orig also puts the first selection rectangle on the clipboard as a
  // bitmap (CF_BITMAP); gpui's clipboard is text only, so only the text goes.
@@ -153,6 +154,7 @@ index 44dde29c1..be8d01e99 100644
 +        *errorOut = str::DupTemp(StrL("OCR data eng.traineddata was not found"));
 +        return {};
 +    }
++    TempStr languages = FindOcrLanguagesTemp(dataDir);
 +    Pixmap* pixmap = RenderSelectionsAsPixmap(dm, *tab->selectionOnPage);
 +    if (!pixmap) {
 +        *errorOut = str::DupTemp(StrL("Could not render the selected area for OCR"));
@@ -170,7 +172,7 @@ index 44dde29c1..be8d01e99 100644
 +    fz_var(text);
 +    fz_try(ctx) {
 +        text = sumatra_ocr_bgra_text(ctx, pixmap->data, pixmap->width, pixmap->height, pixmap->stride,
-+                                     (int)pixmap->xres, (int)pixmap->yres, "eng", CStrTemp(dataDir));
++                                     (int)pixmap->xres, (int)pixmap->yres, CStrTemp(languages), CStrTemp(dataDir));
 +        unsigned char* data = nullptr;
 +        size_t size = fz_buffer_storage(ctx, text, &data);
 +        Str recognized((const char*)data, (int)size);
@@ -191,7 +193,7 @@ index 44dde29c1..be8d01e99 100644
  void CopySelectionToClipboard(MainWindow* win) {
  #else
  RenderedBitmap* RenderSelectionsAsRenderedBitmap(DisplayModel* dm, const Vec<SelectionOnPage>& selections) {
-@@ -970,9 +1018,18 @@ void CopySelectionToClipboard(MainWindow* win) {
+@@ -970,9 +1019,18 @@ void CopySelectionToClipboard(MainWindow* win) {
      selText = GetSelectedTextTemp(tab, StrL("\r\n"), isTextOnlySelectionOut);
      logf("CopySelectionToClipboard: %d bytes, text-only selection: %d\n", len(selText), isTextOnlySelectionOut ? 1 : 0);
      if (len(selText) == 0) {
@@ -211,7 +213,7 @@ index 44dde29c1..be8d01e99 100644
  #else
  
      CopySelectionImageToOpenClipboard(tab, true);
-@@ -1043,6 +1100,18 @@ void OnSelectCurrentPage(MainWindow* win) {
+@@ -1043,6 +1101,18 @@ void OnSelectCurrentPage(MainWindow* win) {
      dm->textSelection->SelectUpTo(pageNo, -1);
      win->selectionRect = Rect::FromXY(INT_MIN / 2, INT_MIN / 2, INT_MAX, INT_MAX);
      UpdateTextSelection(win, false);
@@ -230,7 +232,7 @@ index 44dde29c1..be8d01e99 100644
      RepaintSelection(win);
  }
  
-@@ -1194,6 +1263,13 @@ void OnSelectionStop(MainWindow* win, int x, int y, bool aborted) {
+@@ -1194,6 +1264,13 @@ void OnSelectionStop(MainWindow* win, int x, int y, bool aborted) {
          // the selection on mouse-up when the pointer actually moved (issue #5712).
          bool dragged = IsDragDistance(win->selectionRect.x, x, win->selectionRect.y, y);
          UpdateTextSelection(win, dragged);
@@ -246,10 +248,10 @@ index 44dde29c1..be8d01e99 100644
      if (editingRect) {
 diff --git a/src/ng/OcrText.cpp b/src/ng/OcrText.cpp
 new file mode 100644
-index 000000000..73761c0d1
+index 000000000..fe51dea52
 --- /dev/null
 +++ b/src/ng/OcrText.cpp
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,69 @@
 +/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
 +   License: GPLv3 */
 +
@@ -307,18 +309,31 @@ index 000000000..73761c0d1
 +    }
 +    return {};
 +}
++
++TempStr FindOcrLanguagesTemp(Str dataDir) {
++    bool hasEnglish = file::Exists(path::JoinTemp(dataDir, StrL("eng.traineddata")));
++    bool hasJapanese = file::Exists(path::JoinTemp(dataDir, StrL("jpn.traineddata")));
++    if (hasJapanese && hasEnglish) {
++        return StrL("jpn+eng");
++    }
++    if (hasJapanese) {
++        return StrL("jpn");
++    }
++    return hasEnglish ? StrL("eng") : TempStr{};
++}
 diff --git a/src/ng/OcrText.h b/src/ng/OcrText.h
 new file mode 100644
-index 000000000..c68f60b5b
+index 000000000..d85b5b586
 --- /dev/null
 +++ b/src/ng/OcrText.h
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,7 @@
 +/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
 +   License: GPLv3 */
 +
 +#pragma once
 +
 +TempStr FindOcrDataDirTemp();
++TempStr FindOcrLanguagesTemp(Str dataDir);
 diff --git a/src/ng/mupdf/ocr-text.c b/src/ng/mupdf/ocr-text.c
 new file mode 100644
 index 000000000..5defb5ee9
