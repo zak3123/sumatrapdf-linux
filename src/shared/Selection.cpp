@@ -10,7 +10,6 @@
 // docs/port-progress.md.
 
 #include "gui/GpuiBridge.h"
-#include "base/File.h"
 #else
 #include "base/Base.h"
 #endif
@@ -69,6 +68,7 @@
 #include "gui/DocCanvas.h"
 #include "mupdf/fitz.h"
 #include "mupdf/ocr-text.h"
+#include "OcrText.h"
 #include "SelectTextKeyboard.h"
 #else
 #include "SelectTextKeyboard.h"
@@ -878,56 +878,6 @@ Pixmap* RenderSelectionsAsPixmap(DisplayModel* dm, const Vec<SelectionOnPage>& s
 #if defined(SUMATRA_NG)
 // ng: orig also puts the first selection rectangle on the clipboard as a
 // bitmap (CF_BITMAP); gpui's clipboard is text only, so only the text goes.
-static TempStr OcrDataDirIfValidTemp(Str dir) {
-    if (len(dir) == 0 || !file::Exists(path::JoinTemp(dir, StrL("eng.traineddata")))) {
-        return {};
-    }
-    return str::DupTemp(dir);
-}
-
-static TempStr FindOcrDataDirTemp() {
-    const char* env = getenv("TESSDATA_PREFIX");
-    TempStr result;
-    if (env) {
-        result = OcrDataDirIfValidTemp(Str(env));
-        if (result) {
-            return result;
-        }
-        result = OcrDataDirIfValidTemp(path::JoinTemp(Str(env), StrL("tessdata")));
-        if (result) {
-            return result;
-        }
-    }
-
-    result = OcrDataDirIfValidTemp(path::JoinTemp(GetSelfExeDirTemp(), StrL("tessdata")));
-    if (result) {
-        return result;
-    }
-    const char* home = getenv("HOME");
-    if (home) {
-        result = OcrDataDirIfValidTemp(path::JoinTemp(Str(home), StrL(".local/share/sumatrapdf/tessdata")));
-        if (result) {
-            return result;
-        }
-    }
-
-    const char* systemDirs[] = {
-        "/usr/share/tesseract/tessdata",
-        "/usr/share/tesseract-ocr/5/tessdata",
-        "/usr/share/tesseract-ocr/4.00/tessdata",
-        "/usr/share/tessdata",
-        "/usr/local/share/tessdata",
-        "/app/share/tessdata",
-    };
-    for (const char* dir : systemDirs) {
-        result = OcrDataDirIfValidTemp(Str(dir));
-        if (result) {
-            return result;
-        }
-    }
-    return {};
-}
-
 static TempStr GetOcrTextTemp(WindowTab* tab, TempStr* errorOut) {
     DisplayModel* dm = tab ? tab->AsFixed() : nullptr;
     if (!dm || !tab->selectionOnPage || len(*tab->selectionOnPage) == 0) {
@@ -1150,6 +1100,18 @@ void OnSelectCurrentPage(MainWindow* win) {
     dm->textSelection->SelectUpTo(pageNo, -1);
     win->selectionRect = Rect::FromXY(INT_MIN / 2, INT_MIN / 2, INT_MAX, INT_MAX);
     UpdateTextSelection(win, false);
+#if defined(SUMATRA_NG)
+    // Scanned pages and image documents have no embedded glyphs. Select the
+    // page rectangle instead so Copy can pass the rendered page through OCR.
+    if (!win->CurrentTab()->selectionOnPage) {
+        RectF pageRect = dm->GetEngine()->PageMediabox(pageNo);
+        auto* selections = new Vec<SelectionOnPage>();
+        VecAppend(*selections, SelectionOnPage(pageNo, &pageRect));
+        win->CurrentTab()->selectionOnPage = selections;
+        win->showSelection = true;
+        ShowSelectionToolbar(win, SelToolbarShow::Settled);
+    }
+#endif
     RepaintSelection(win);
 }
 
