@@ -8420,10 +8420,11 @@ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
     if (str::IsEmptyOrWhiteSpace(res.text)) {
         TempStr dataDir = FindOcrDataDirTemp();
         if (len(dataDir) > 0) {
+            TempStr languages = FindOcrLanguagesTemp(dataDir);
             FreePageText(&res);
             stext = nullptr;
             fz_try(ctx) {
-                stext = sumatra_ocr_page_text(ctx, pageInfo->page, &opts, "eng", CStrTemp(dataDir));
+                stext = sumatra_ocr_page_text(ctx, pageInfo->page, &opts, CStrTemp(languages), CStrTemp(dataDir));
             }
             fz_catch(ctx) {
                 fz_report_error(ctx);
