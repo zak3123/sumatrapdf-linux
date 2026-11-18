@@ -412,10 +412,10 @@ index 000000000..d85b5b586
 +TempStr FindOcrLanguagesTemp(Str dataDir);
 diff --git a/src/ng/mupdf/ocr-text.c b/src/ng/mupdf/ocr-text.c
 new file mode 100644
-index 000000000..a23a16ad3
+index 000000000..7403a8dbb
 --- /dev/null
 +++ b/src/ng/mupdf/ocr-text.c
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,178 @@
 +/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
 +   License: GPLv3 */
 +
@@ -433,6 +433,27 @@ index 000000000..a23a16ad3
 +    int has_line;
 +    int has_word;
 +} ocr_text_state;
++
++static void scale_stext_blocks(fz_stext_block* block, float scale) {
++    fz_matrix matrix = fz_scale(scale, scale);
++    for (; block; block = block->next) {
++        block->bbox = fz_transform_rect(block->bbox, matrix);
++        if (block->type == FZ_STEXT_BLOCK_TEXT) {
++            fz_stext_line* line;
++            for (line = block->u.t.first_line; line; line = line->next) {
++                fz_stext_char* character;
++                line->bbox = fz_transform_rect(line->bbox, matrix);
++                for (character = line->first_char; character; character = character->next) {
++                    character->origin = fz_transform_point(character->origin, matrix);
++                    character->quad = fz_transform_quad(character->quad, matrix);
++                    character->size *= scale;
++                }
++            }
++        } else if (block->type == FZ_STEXT_BLOCK_STRUCT && block->u.s.down) {
++            scale_stext_blocks(block->u.s.down->first_block, scale);
++        }
++    }
++}
 +
 +static void append_ocr_character(fz_context* ctx, void* arg, int unicode, const char* font_name, const int* line_bbox,
 +                                 const int* word_bbox, const int* char_bbox, int pointsize) {
@@ -537,7 +558,9 @@ index 000000000..a23a16ad3
 +
 +fz_stext_page* sumatra_ocr_page_text(fz_context* ctx, fz_page* page, const fz_stext_options* options,
 +                                     const char* language, const char* datadir) {
++    const float ocr_scale = 300.0f / 72.0f;
 +    fz_rect mediabox;
++    fz_matrix ctm;
 +    fz_stext_page* text = NULL;
 +    fz_device* target = NULL;
 +    fz_device* ocr = NULL;
@@ -550,14 +573,16 @@ index 000000000..a23a16ad3
 +    }
 +    fz_try(ctx) {
 +        mediabox = fz_bound_page(ctx, page);
-+        text = fz_new_stext_page(ctx, mediabox);
++        ctm = fz_scale(ocr_scale, ocr_scale);
++        text = fz_new_stext_page(ctx, fz_transform_rect(mediabox, ctm));
 +        target = fz_new_stext_device(ctx, text, options);
 +        /* Produce OCR-only structured text. Keeping the page display list here
 +         * preserves malformed hidden text layers and defeats the fallback. */
-+        ocr = fz_new_ocr_device(ctx, target, fz_identity, mediabox, 0, language, datadir, NULL, NULL);
-+        fz_run_page(ctx, page, ocr, fz_identity, NULL);
++        ocr = fz_new_ocr_device(ctx, target, ctm, mediabox, 0, language, datadir, NULL, NULL);
++        fz_run_page(ctx, page, ocr, ctm, NULL);
 +        fz_close_device(ctx, ocr);
 +        fz_close_device(ctx, target);
++        scale_stext_blocks(text->first_block, 1.0f / ocr_scale);
 +    }
 +    fz_always(ctx) {
 +        fz_drop_device(ctx, ocr);
