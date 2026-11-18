@@ -4,3 +4,4 @@
 #pragma once
 
 TempStr FindOcrDataDirTemp();
+TempStr FindOcrLanguagesTemp(Str dataDir);
