@@ -55,3 +55,15 @@ TempStr FindOcrDataDirTemp() {
     }
     return {};
 }
+
+TempStr FindOcrLanguagesTemp(Str dataDir) {
+    bool hasEnglish = file::Exists(path::JoinTemp(dataDir, StrL("eng.traineddata")));
+    bool hasJapanese = file::Exists(path::JoinTemp(dataDir, StrL("jpn.traineddata")));
+    if (hasJapanese && hasEnglish) {
+        return StrL("jpn+eng");
+    }
+    if (hasJapanese) {
+        return StrL("jpn");
+    }
+    return hasEnglish ? StrL("eng") : TempStr{};
+}
