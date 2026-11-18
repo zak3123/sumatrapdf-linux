@@ -19,6 +19,27 @@ index d1eed0d79..86ad7d766 100644
      deps: ["mupdf"],
      winLibs: [
        "advapi32.lib",
+diff --git a/ext/mupdf/source/fitz/ocr-device.c b/ext/mupdf/source/fitz/ocr-device.c
+index 12a7b6dcb..3c932cc9e 100644
+--- a/ext/mupdf/source/fitz/ocr-device.c
++++ b/ext/mupdf/source/fitz/ocr-device.c
+@@ -466,9 +466,13 @@ flush_word(fz_context *ctx, fz_ocr_device *ocr)
+ 			trm.d = 10.0f/6 * (char_bbox.y1 - char_bbox.y0);
+ 			trm.e = char_bbox.x0;
+ 			trm.f = char_bbox.y0;
+-			fz_show_glyph(ctx, text, ocr->font, trm,
+-				fz_encode_character(ctx, ocr->font, ocr->chars[i]), ocr->chars[i],
+-					0, 0, FZ_BIDI_LTR, 0);
++			/* Courier has no glyphs for many OCR scripts (for example
++			 * Japanese). Keep its nominal monospaced advance explicitly so
++			 * structured-text extraction still gets a selectable box for
++			 * every recognized character. */
++			fz_show_glyph_aux(ctx, text, ocr->font, trm, 0.6f,
++				fz_encode_character(ctx, ocr->font, ocr->chars[i]),
++				ocr->chars[i], ocr->chars[i], 0, 0, FZ_BIDI_LTR, 0);
+ 		}
+ 
+ 		fz_fill_text(ctx, ocr->target, text, fz_identity,
 diff --git a/src/ng/tools/test_mupdf.cpp b/src/ng/tools/test_mupdf.cpp
 index e73b3448a..69afbea0b 100644
 --- a/src/ng/tools/test_mupdf.cpp
@@ -82,7 +103,7 @@ index e73b3448a..69afbea0b 100644
      }
      fz_context* ctx = fz_new_context(nullptr, nullptr, FZ_STORE_DEFAULT);
 diff --git a/src/shared/EngineMupdf.cpp b/src/shared/EngineMupdf.cpp
-index bd6fa2cfb..0fdbfd6b2 100644
+index bd6fa2cfb..bd10b34a0 100644
 --- a/src/shared/EngineMupdf.cpp
 +++ b/src/shared/EngineMupdf.cpp
 @@ -49,6 +49,10 @@ extern "C" {
@@ -96,7 +117,59 @@ index bd6fa2cfb..0fdbfd6b2 100644
  
  // A5
  static float layoutA5DxPt = 420.F;
-@@ -8409,6 +8413,29 @@ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
+@@ -8388,6 +8392,51 @@ RenderedBitmap* EngineMupdf::GetPageImage(int pageNo, RectF rect, int imageIdx)
+ #endif
+ }
+ 
++#if defined(SUMATRA_NG) && !OS_WASM
++static bool NeedsOcrText(const PageText& pageText) {
++    if (str::IsEmptyOrWhiteSpace(pageText.text)) {
++        return true;
++    }
++
++    Str text(pageText.text);
++    int nCodepoints = Utf8CodepointCount(text);
++    if (!pageText.coords || nCodepoints < 8) {
++        return false;
++    }
++
++    int byteIdx = 0;
++    int visible = 0;
++    int selectable = 0;
++    for (int i = 0; i < nCodepoints; i++) {
++        int cp = Utf8CodepointNext(text, byteIdx);
++        if (cp <= 0x7f && str::IsWs((char)cp)) {
++            continue;
++        }
++        visible++;
++        const Rect& box = pageText.coords[i];
++        if (box.dx > 0 && box.dy > 0) {
++            selectable++;
++        }
++    }
++
++    // Some scanned PDFs contain a malformed hidden text layer whose Unicode is
++    // readable but whose glyph boxes have zero width. It cannot be hit-tested,
++    // so replace it with OCR geometry when most visible characters are broken.
++    return visible >= 8 && selectable * 2 < visible;
++}
++
++static bool HasJapaneseKana(Str text) {
++    int byteIdx = 0;
++    while (byteIdx < len(text)) {
++        int cp = Utf8CodepointNext(text, byteIdx);
++        if ((cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x31f0 && cp <= 0x31ff)) {
++            return true;
++        }
++    }
++    return false;
++}
++#endif
++
+ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
+     auto* ctx = e->Ctx();
+     // callers hold pagesLock + renderLock; docLock is needed too because this
+@@ -8409,6 +8458,32 @@ static PageText ExtractPageTextLocked(EngineMupdf* e, FzPageInfo* pageInfo) {
      PageText res;
      res.text = FzTextPageToUtf8(stext, &res.coords, &res.quads);
      fz_drop_stext_page(ctx, stext);
@@ -104,10 +177,13 @@ index bd6fa2cfb..0fdbfd6b2 100644
 +    // A scanned PDF has no embedded glyphs. Build a structured text page with
 +    // Tesseract so normal hit-testing, blue text selection, search and the
 +    // right-click selection menu work with the recognized character boxes.
-+    if (str::IsEmptyOrWhiteSpace(res.text)) {
++    if (NeedsOcrText(res)) {
 +        TempStr dataDir = FindOcrDataDirTemp();
 +        if (len(dataDir) > 0) {
 +            TempStr languages = FindOcrLanguagesTemp(dataDir);
++            if (HasJapaneseKana(Str(res.text)) && str::Contains(languages, StrL("jpn"))) {
++                languages = str::DupTemp(StrL("jpn"));
++            }
 +            FreePageText(&res);
 +            stext = nullptr;
 +            fz_try(ctx) {
@@ -336,10 +412,10 @@ index 000000000..d85b5b586
 +TempStr FindOcrLanguagesTemp(Str dataDir);
 diff --git a/src/ng/mupdf/ocr-text.c b/src/ng/mupdf/ocr-text.c
 new file mode 100644
-index 000000000..5defb5ee9
+index 000000000..a23a16ad3
 --- /dev/null
 +++ b/src/ng/mupdf/ocr-text.c
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,153 @@
 +/* Copyright 2026 the SumatraPDF project authors (see AUTHORS file).
 +   License: GPLv3 */
 +
@@ -476,7 +552,9 @@ index 000000000..5defb5ee9
 +        mediabox = fz_bound_page(ctx, page);
 +        text = fz_new_stext_page(ctx, mediabox);
 +        target = fz_new_stext_device(ctx, text, options);
-+        ocr = fz_new_ocr_device(ctx, target, fz_identity, mediabox, 1, language, datadir, NULL, NULL);
++        /* Produce OCR-only structured text. Keeping the page display list here
++         * preserves malformed hidden text layers and defeats the fallback. */
++        ocr = fz_new_ocr_device(ctx, target, fz_identity, mediabox, 0, language, datadir, NULL, NULL);
 +        fz_run_page(ctx, page, ocr, fz_identity, NULL);
 +        fz_close_device(ctx, ocr);
 +        fz_close_device(ctx, target);
